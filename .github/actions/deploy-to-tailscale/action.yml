@@ -87,7 +87,9 @@ runs:
             systemctl --user stop startup-deployed@$REPO_NAME.service || true
             cd ~/$REPO_NAME
             git fetch
+            git stash
             git pull
+            git stash drop
           fi
           # Configure git to ignore file mode changes locally
           git config core.fileMode false
