@@ -81,6 +81,7 @@ runs:
           if [ ! -d ~/$REPO_NAME ]; then
             echo 'Cloning repository...'
             git clone https://github.com/${{ github.repository }} ~/$REPO_NAME
+            git lfs pull
             cd ~/$REPO_NAME
           else
             echo 'Updating existing repository...'
@@ -89,6 +90,7 @@ runs:
             git fetch
             git reset --hard HEAD
             git pull
+            git lfs pull
           fi
           # Configure git to ignore file mode changes locally
           git config core.fileMode false
