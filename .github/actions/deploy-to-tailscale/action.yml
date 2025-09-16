@@ -1,23 +1,23 @@
-name: "Deploy to Tailscale Server"
-description: "Deploys a repository to a Tailscale server with systemd service management"
+name: 'Deploy to Tailscale Server'
+description: 'Deploys a repository to a Tailscale server with systemd service management'
 inputs:
   server_ip:
-    description: "IP or hostname of the server"
+    description: 'IP or hostname of the server'
     required: true
   ssh_user:
-    description: "SSH user name"
+    description: 'SSH user name'
     required: true
   ts_oauth_client_id:
-    description: "Tailscale OAuth Client ID"
+    description: 'Tailscale OAuth Client ID'
     required: true
   ts_oauth_secret:
-    description: "Tailscale OAuth Secret"
+    description: 'Tailscale OAuth Secret'
     required: true
   tags:
-    description: "Tags for Tailscale"
+    description: 'Tags for Tailscale'
     required: true
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
     - uses: actions/checkout@v2
 
@@ -50,19 +50,18 @@ runs:
           exit 1
         fi
 
-        # Create a temporary service file (adds ExecReload for graceful deploy)
+        # Create a temporary service file
         echo "[Unit]
         Description=StartUp Service for %I
 
         [Service]
         Type=simple
         ExecStart=/bin/bash -l -c \"%h/%i/init.sh\"
-        ExecReload=/bin/bash -l -c \"REPO_DIR=%h/%i %h/%i/pre-reload.sh\"
+        ExecReload=/bin/kill -HUP $MAINPID
         WorkingDirectory=%h/%i
         Restart=on-failure
         RestartSec=5s
         TimeoutStopSec=30
-        KillMode=process
 
         [Install]
         WantedBy=default.target" > service.tmp
@@ -93,14 +92,14 @@ runs:
           fi
           # Configure git to ignore file mode changes locally
           git config core.fileMode false
-
-          # Ensure scripts are executable (pre-reload.sh only if present)
-          chmod +x init.sh || true
-          if [ -f pre-reload.sh ]; then
-            chmod +x pre-reload.sh || true
-            HAS_PRERELOAD=1
+          
+          # Always ensure init.sh is executable after clone/pull
+          chmod +x init.sh
+          
+          if grep -q 'trap.*SIGHUP' init.sh; then
+            TRAPS_SIGHUP=1
           else
-            HAS_PRERELOAD=0
+            TRAPS_SIGHUP=0
           fi
 
           # Ensure service is enabled
@@ -108,12 +107,12 @@ runs:
 
           # Decide start/reload strategy
           if systemctl --user is-active --quiet startup-deployed@$REPO_NAME.service; then
-            if [ "$HAS_PRERELOAD" -eq 1 ]; then
-              echo 'pre-reload.sh found: graceful reload'
-              systemctl --user reload startup-deployed@$REPO_NAME.service || true
+            if [ "$TRAPS_SIGHUP" -eq 1 ]; then
+              echo 'init.sh traps SIGHUP: performing graceful reload'
+              systemctl --user reload startup-deployed@$REPO_NAME.service
             else
-              echo 'pre-reload.sh not found: falling back to restart'
-              systemctl --user restart startup-deployed@$REPO_NAME.service || true
+              echo 'init.sh does not trap SIGHUP: performing restart'
+              systemctl --user restart startup-deployed@$REPO_NAME.service
             fi
           else
             echo 'Service not active: starting now'
