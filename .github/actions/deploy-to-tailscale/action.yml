@@ -57,7 +57,7 @@ runs:
         [Service]
         Type=simple
         ExecStart=/bin/bash -l -c \"%h/%i/init.sh\"
-        ExecReload=/bin/kill -HUP ${MAINPID}
+        ExecReload=/bin/kill -HUP \$MAINPID
         WorkingDirectory=%h/%i
         Restart=on-failure
         RestartSec=5s
