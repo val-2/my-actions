@@ -107,7 +107,7 @@ runs:
 
           # Decide start/reload strategy
           if systemctl --user is-active --quiet startup-deployed@$REPO_NAME.service; then
-            if [ "$TRAPS_SIGHUP" -eq 1 ]; then
+            if [ "\$TRAPS_SIGHUP" -eq 1 ]; then
               echo 'init.sh traps SIGHUP: performing graceful reload'
               systemctl --user reload startup-deployed@$REPO_NAME.service
             else
