@@ -1,0 +1,82 @@
+name: "Docker Deploy to Tailscale Server"
+description: "Deploys a repository to a Tailscale server and runs it using Docker Compose"
+inputs:
+  server_ip:
+    description: "IP or hostname of the server"
+    required: true
+  ssh_user:
+    description: "SSH user name"
+    required: true
+  ts_oauth_client_id:
+    description: "Tailscale OAuth Client ID"
+    required: true
+  ts_oauth_secret:
+    description: "Tailscale OAuth Secret"
+    required: true
+  tags:
+    description: "Tags for Tailscale"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v2
+
+    - name: Tailscale
+      uses: tailscale/github-action@v2
+      with:
+        oauth-client-id: ${{ inputs.ts_oauth_client_id }}
+        oauth-secret: ${{ inputs.ts_oauth_secret }}
+        tags: ${{ inputs.tags }}
+
+    - name: Deploy to Server
+      env:
+        SERVER_IP: ${{ inputs.server_ip }}
+        SSH_USER: ${{ inputs.ssh_user }}
+      shell: bash
+      run: |
+        # Verify connection variables
+        if [ -z "$SERVER_IP" ] || [ -z "$SSH_USER" ]; then
+          echo "Error: Environment variables SERVER_IP or SSH_USER are not set"
+          exit 1
+        fi
+
+        # Set up connection details
+        CONNECTION="$SSH_USER@$SERVER_IP"
+        echo "Attempting to connect to $CONNECTION"
+
+        # Test SSH connection first
+        if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $CONNECTION 'echo "SSH connection successful"'; then
+          echo "Error: Cannot establish SSH connection"
+          exit 1
+        fi
+
+        # Set repository name
+        REPO_NAME=$(echo "${{ github.repository }}" | cut -d "/" -f2)
+        echo "Setting up repository: $REPO_NAME"
+
+        # Deploy repository and start docker compose
+        ssh -o StrictHostKeyChecking=no $CONNECTION "
+          set -e
+          if [ ! -d ~/$REPO_NAME ]; then
+            echo 'Cloning repository...'
+            git clone https://github.com/${{ github.repository }} ~/$REPO_NAME
+            cd ~/$REPO_NAME
+          else
+            echo 'Updating existing repository...'
+            cd ~/$REPO_NAME
+            git fetch
+            git reset --hard HEAD
+            git pull
+          fi
+
+          # Configure git to ignore file mode changes locally
+          git config core.fileMode false
+
+          echo 'Starting application with Docker Compose...'
+          docker compose up -d --build --remove-orphans
+
+          echo 'Cleaning up unused Docker images...'
+          docker image prune -f
+
+          echo 'Deployment completed successfully'
+        "
