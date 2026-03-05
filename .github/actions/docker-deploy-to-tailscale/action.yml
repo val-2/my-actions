@@ -34,10 +34,18 @@ runs:
         password: ${{ inputs.github_token }}
 
     # 2. Build e Push di tutte le immagini usando docker-compose
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
     - name: Build and push Docker images
       shell: bash
+      env:
+        DOCKER_BUILD_RECORD_UPLOAD: false
       run: |
-        docker compose build
+        # Abilitiamo esplicitamente BuildKit e diciamo a Docker di salvare la cache "inline" nell'immagine
+        export COMPOSE_DOCKER_CLI_BUILD=1
+        export DOCKER_BUILDKIT=1
+        docker compose build --build-arg BUILDKIT_INLINE_CACHE=1
         docker compose push
 
     # 3. Connessione Tailscale
