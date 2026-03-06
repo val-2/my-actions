@@ -55,6 +55,13 @@ runs:
         # Execute smart deployment logic on the server
         ssh -o StrictHostKeyChecking=no $CONNECTION "
           set -e
+
+          # Load user environment for non-interactive SSH <---
+          # This ensures pm2, bun, and uv are available in the PATH
+          export NVM_DIR=\"\$HOME/.nvm\"
+          [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"
+          export PATH=\"\$PATH:\$HOME/.local/bin:\$HOME/.bun/bin\"
+
           REPO_DIR=~/$REPO_NAME
 
           # 1. Setup and Update Repository
