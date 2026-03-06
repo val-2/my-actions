@@ -34,7 +34,6 @@ runs:
         SSH_USER: ${{ inputs.ssh_user }}
       shell: bash
       run: |
-        # Verify connection variables
         if [ -z "$SERVER_IP" ] || [ -z "$SSH_USER" ]; then
           echo "Error: Environment variables SERVER_IP or SSH_USER are not set"
           exit 1
@@ -43,21 +42,17 @@ runs:
         CONNECTION="$SSH_USER@$SERVER_IP"
         echo "Attempting to connect to $CONNECTION"
 
-        # Initial SSH connection test
         if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $CONNECTION 'echo "SSH connection successful"'; then
           echo "Error: Cannot establish SSH connection"
           exit 1
         fi
 
         REPO_NAME=$(echo "${{ github.repository }}" | cut -d "/" -f2)
-        echo "Setting up deployment for repository: $REPO_NAME"
 
-        # Execute smart deployment logic on the server
         ssh -o StrictHostKeyChecking=no $CONNECTION "
           set -e
 
-          # Load user environment for non-interactive SSH <---
-          # This ensures pm2, bun, and uv are available in the PATH
+          # Load user environment so pm2, bun, and uv work in the Action
           export NVM_DIR=\"\$HOME/.nvm\"
           [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"
           export PATH=\"\$PATH:\$HOME/.local/bin:\$HOME/.bun/bin\"
@@ -79,57 +74,62 @@ runs:
             git pull
           fi
 
-          # Ignore file permission changes to prevent false positives in diff
           git config core.fileMode false
           NEW_HEAD=\$(git rev-parse HEAD)
 
-          find . -type f -name "build.sh" -exec chmod +x {} +
+          echo '----------------------------------------'
 
-          # 1. Find ALL directories containing an executable build.sh file
-          APP_DIRS=\$(find . -type f -name "build.sh" -executable | xargs -I {} dirname {} | sed 's#^\./##')
-
-          # 2. Calculate which directories have changed
-          if [ \"\$OLD_HEAD\" = \"FIRST_RUN\" ]; then
-            # On first run, process all directories
-            CHANGED_DIRS=\$(ls -d */ | sed 's#/##')
-          else
-            # Find only the main directories containing modified files
-            CHANGED_DIRS=\$(git diff --name-only \$OLD_HEAD \$NEW_HEAD | awk -F/ '{print \$1}' | sort -u)
-          fi
-
-          # 3. Iterate and apply Zero-Downtime Build & Reload
-          for DIR in \$CHANGED_DIRS; do
-            # Ignore files in the root or hidden directories like .git/ or .github/
-            if [ ! -d \"\$DIR\" ] || [[ \"\$DIR\" == .* ]]; then continue; fi
-
-            echo '----------------------------------------'
-            echo \"Processing component: \$DIR\"
-
-            # PHASE A: Build (executed WHILE the old process is still online)
-            if [ -x \"\$DIR/build.sh\" ]; then
-              echo \"Executing build.sh script for \$DIR...\"
-              # Execute in a subshell to avoid changing the main loop directory
-              (cd \"\$DIR\" && ./build.sh)
-            else
-              echo \"No executable build.sh found for \$DIR. Skipping build.\"
-            fi
-
-            # PHASE B: Start or Reload (Zero Downtime)
-            # Check if the process already exists in PM2
-            if pm2 describe \"\$DIR\" > /dev/null 2>&1; then
-              echo \"Process \$DIR already exists. Performing a graceful reload (zero-downtime)...\"
-              # If reload fails for any reason, do a classic restart for safety
-              pm2 reload \"\$DIR\" 2>/dev/null || pm2 restart \"\$DIR\"
-            else
-              echo \"Process \$DIR does not exist yet. Starting it by reading ecosystem.config.js...\"
-              # Start ONLY the process matching the directory name
-              pm2 start ecosystem.config.js --only \"\$DIR\"
+          # 2. Find apps securely and force executable permissions
+          APP_DIRS=\"\"
+          for BUILD_FILE in \$(find . -type f -name \"build.sh\"); do
+            chmod +x \"\$BUILD_FILE\"
+            DIR_NAME=\$(dirname \"\$BUILD_FILE\" | sed 's#^\./##')
+            if [ \"\$DIR_NAME\" != \".\" ]; then
+              APP_DIRS=\"\$APP_DIRS \$DIR_NAME\"
             fi
           done
 
-          # Save PM2 state to make it persistent across VPS reboots
-          pm2 save > /dev/null
+          if [ -z \"\$APP_DIRS\" ]; then
+            echo \"Warning: No apps with build.sh found!\"
+          fi
 
-          echo '----------------------------------------'
+          # 3. Smart Process Management
+          for DIR in \$APP_DIRS; do
+            echo \"Checking component: \$DIR\"
+            PM2_NAME=\$(echo \"\$DIR\" | tr '/' '-')
+
+            # Check if PM2 is currently running this app
+            IS_RUNNING=0
+            if pm2 describe \"\$PM2_NAME\" > /dev/null 2>&1; then
+              IS_RUNNING=1
+            fi
+
+            # Check if Git code changed
+            HAS_CHANGES=0
+            if [ \"\$OLD_HEAD\" = \"FIRST_RUN\" ] || ! git diff --quiet \$OLD_HEAD \$NEW_HEAD -- \"\$DIR\"; then
+              HAS_CHANGES=1
+            fi
+
+            # Decision Tree
+            if [ \$IS_RUNNING -eq 0 ]; then
+              echo \"-> Process '\$PM2_NAME' is NOT running. Starting it...\"
+              echo \"Executing build...\"
+              (cd \"\$DIR\" && ./build.sh)
+              pm2 start ecosystem.config.js --only \"\$PM2_NAME\"
+
+            elif [ \$HAS_CHANGES -eq 1 ]; then
+              echo \"-> Changes detected for '\$DIR'. Rebuilding and reloading...\"
+              (cd \"\$DIR\" && ./build.sh)
+              echo \"Performing graceful reload...\"
+              pm2 reload \"\$PM2_NAME\" 2>/dev/null || pm2 restart \"\$PM2_NAME\"
+
+            else
+              echo \"-> No changes for '\$DIR' and it is already running. Skipping.\"
+            fi
+
+            echo '----------------------------------------'
+          done
+
+          pm2 save > /dev/null
           echo 'Deployment completed successfully!'
         "
