@@ -1,23 +1,23 @@
-name: 'Deploy to Tailscale Server'
-description: 'Deploys a repository to a Tailscale server with systemd service management'
+name: "Deploy to Tailscale Server"
+description: "Deploys a repository to a Tailscale server with systemd service management"
 inputs:
   server_ip:
-    description: 'IP or hostname of the server'
+    description: "IP or hostname of the server"
     required: true
   ssh_user:
-    description: 'SSH user name'
+    description: "SSH user name"
     required: true
   ts_oauth_client_id:
-    description: 'Tailscale OAuth Client ID'
+    description: "Tailscale OAuth Client ID"
     required: true
   ts_oauth_secret:
-    description: 'Tailscale OAuth Secret'
+    description: "Tailscale OAuth Secret"
     required: true
   tags:
-    description: 'Tags for Tailscale'
+    description: "Tags for Tailscale"
     required: true
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - uses: actions/checkout@v2
 
@@ -92,10 +92,10 @@ runs:
           fi
           # Configure git to ignore file mode changes locally
           git config core.fileMode false
-          
+
           # Always ensure init.sh is executable after clone/pull
           chmod +x init.sh
-          
+
           if grep -q 'trap.*SIGHUP' init.sh; then
             TRAPS_SIGHUP=1
           else

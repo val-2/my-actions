@@ -1,0 +1,123 @@
+name: "Deploy to Tailscale Server"
+description: "Deploys a repository to a Tailscale server with PM2 zero-downtime management"
+inputs:
+  server_ip:
+    description: "IP or hostname of the server"
+    required: true
+  ssh_user:
+    description: "SSH user name"
+    required: true
+  ts_oauth_client_id:
+    description: "Tailscale OAuth Client ID"
+    required: true
+  ts_oauth_secret:
+    description: "Tailscale OAuth Secret"
+    required: true
+  tags:
+    description: "Tags for Tailscale"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v2
+
+    - name: Tailscale
+      uses: tailscale/github-action@v2
+      with:
+        oauth-client-id: ${{ inputs.ts_oauth_client_id }}
+        oauth-secret: ${{ inputs.ts_oauth_secret }}
+        tags: ${{ inputs.tags }}
+
+    - name: Deploy to Server
+      env:
+        SERVER_IP: ${{ inputs.server_ip }}
+        SSH_USER: ${{ inputs.ssh_user }}
+      shell: bash
+      run: |
+        # Verify connection variables
+        if [ -z "$SERVER_IP" ] || [ -z "$SSH_USER" ]; then
+          echo "Error: Environment variables SERVER_IP or SSH_USER are not set"
+          exit 1
+        fi
+
+        CONNECTION="$SSH_USER@$SERVER_IP"
+        echo "Attempting to connect to $CONNECTION"
+
+        # Initial SSH connection test
+        if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $CONNECTION 'echo "SSH connection successful"'; then
+          echo "Error: Cannot establish SSH connection"
+          exit 1
+        fi
+
+        REPO_NAME=$(echo "${{ github.repository }}" | cut -d "/" -f2)
+        echo "Setting up deployment for repository: $REPO_NAME"
+
+        # Execute smart deployment logic on the server
+        ssh -o StrictHostKeyChecking=no $CONNECTION "
+          set -e
+          REPO_DIR=~/$REPO_NAME
+
+          # 1. Setup and Update Repository
+          if [ ! -d \$REPO_DIR ]; then
+            echo 'Cloning repository...'
+            git clone https://github.com/${{ github.repository }} \$REPO_DIR
+            cd \$REPO_DIR
+            OLD_HEAD='FIRST_RUN'
+          else
+            echo 'Updating existing repository...'
+            cd \$REPO_DIR
+            OLD_HEAD=\$(git rev-parse HEAD 2>/dev/null || echo 'FIRST_RUN')
+            git fetch
+            git reset --hard HEAD
+            git pull
+          fi
+
+          # Ignore file permission changes to prevent false positives in diff
+          git config core.fileMode false
+          NEW_HEAD=\$(git rev-parse HEAD)
+
+          # 2. Calculate which directories have changed
+          if [ \"\$OLD_HEAD\" = \"FIRST_RUN\" ]; then
+            # On first run, process all directories
+            CHANGED_DIRS=\$(ls -d */ | sed 's#/##')
+          else
+            # Find only the main directories containing modified files
+            CHANGED_DIRS=\$(git diff --name-only \$OLD_HEAD \$NEW_HEAD | awk -F/ '{print \$1}' | sort -u)
+          fi
+
+          # 3. Iterate and apply Zero-Downtime Build & Reload
+          for DIR in \$CHANGED_DIRS; do
+            # Ignore files in the root or hidden directories like .git/ or .github/
+            if [ ! -d \"\$DIR\" ] || [[ \"\$DIR\" == .* ]]; then continue; fi
+
+            echo '----------------------------------------'
+            echo \"Processing component: \$DIR\"
+
+            # PHASE A: Build (executed WHILE the old process is still online)
+            if [ -x \"\$DIR/build.sh\" ]; then
+              echo \"Executing build.sh script for \$DIR...\"
+              # Execute in a subshell to avoid changing the main loop directory
+              (cd \"\$DIR\" && ./build.sh)
+            else
+              echo \"No executable build.sh found for \$DIR. Skipping build.\"
+            fi
+
+            # PHASE B: Start or Reload (Zero Downtime)
+            # Check if the process already exists in PM2
+            if pm2 describe \"\$DIR\" > /dev/null 2>&1; then
+              echo \"Process \$DIR already exists. Performing a graceful reload (zero-downtime)...\"
+              # If reload fails for any reason, do a classic restart for safety
+              pm2 reload \"\$DIR\" 2>/dev/null || pm2 restart \"\$DIR\"
+            else
+              echo \"Process \$DIR does not exist yet. Starting it by reading ecosystem.config.js...\"
+              # Start ONLY the process matching the directory name
+              pm2 start ecosystem.config.js --only \"\$DIR\"
+            fi
+          done
+
+          # Save PM2 state to make it persistent across VPS reboots
+          pm2 save > /dev/null
+
+          echo '----------------------------------------'
+          echo 'Deployment completed successfully!'
+        "
