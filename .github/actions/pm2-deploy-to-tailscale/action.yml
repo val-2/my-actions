@@ -76,6 +76,11 @@ runs:
           git config core.fileMode false
           NEW_HEAD=\$(git rev-parse HEAD)
 
+          find . -type f -name "build.sh" -exec chmod +x {} +
+
+          # 1. Find ALL directories containing an executable build.sh file
+          APP_DIRS=\$(find . -type f -name "build.sh" -executable | xargs -I {} dirname {} | sed 's#^\./##')
+
           # 2. Calculate which directories have changed
           if [ \"\$OLD_HEAD\" = \"FIRST_RUN\" ]; then
             # On first run, process all directories
