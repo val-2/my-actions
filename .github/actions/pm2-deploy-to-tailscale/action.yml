@@ -19,8 +19,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@v2
-
     - name: Tailscale
       uses: tailscale/github-action@v2
       with:
@@ -30,106 +28,11 @@ runs:
 
     - name: Deploy to Server
       env:
+        ACTION_PATH: ${{ github.action_path }}
         SERVER_IP: ${{ inputs.server_ip }}
         SSH_USER: ${{ inputs.ssh_user }}
+        REPOSITORY_SLUG: ${{ github.repository }}
+        DEPLOY_SHA: ${{ github.sha }}
+        DEPLOY_REF: ${{ github.ref }}
       shell: bash
-      run: |
-        if [ -z "$SERVER_IP" ] || [ -z "$SSH_USER" ]; then
-          echo "Error: Environment variables SERVER_IP or SSH_USER are not set"
-          exit 1
-        fi
-
-        CONNECTION="$SSH_USER@$SERVER_IP"
-        echo "Attempting to connect to $CONNECTION"
-
-        if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $CONNECTION 'echo "SSH connection successful"'; then
-          echo "Error: Cannot establish SSH connection"
-          exit 1
-        fi
-
-        REPO_NAME=$(echo "${{ github.repository }}" | cut -d "/" -f2)
-
-        ssh -o StrictHostKeyChecking=no $CONNECTION "
-          set -e
-
-          # Load user environment so pm2, bun, and uv work in the Action
-          export NVM_DIR=\"\$HOME/.nvm\"
-          [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"
-          export PATH=\"\$PATH:\$HOME/.local/bin:\$HOME/.bun/bin\"
-
-          REPO_DIR=~/$REPO_NAME
-
-          # 1. Setup and Update Repository
-          if [ ! -d \$REPO_DIR ]; then
-            echo 'Cloning repository...'
-            git clone https://github.com/${{ github.repository }} \$REPO_DIR
-            cd \$REPO_DIR
-            OLD_HEAD='FIRST_RUN'
-          else
-            echo 'Updating existing repository...'
-            cd \$REPO_DIR
-            OLD_HEAD=\$(git rev-parse HEAD 2>/dev/null || echo 'FIRST_RUN')
-            git fetch
-            git reset --hard HEAD
-            git pull
-          fi
-
-          git config core.fileMode false
-          NEW_HEAD=\$(git rev-parse HEAD)
-
-          echo '----------------------------------------'
-
-          # 2. Find apps securely and force executable permissions
-          APP_DIRS=\"\"
-          for BUILD_FILE in \$(find . -type f -name \"build.sh\"); do
-            chmod +x \"\$BUILD_FILE\"
-            DIR_NAME=\$(dirname \"\$BUILD_FILE\" | sed 's#^\./##')
-            if [ \"\$DIR_NAME\" != \".\" ]; then
-              APP_DIRS=\"\$APP_DIRS \$DIR_NAME\"
-            fi
-          done
-
-          if [ -z \"\$APP_DIRS\" ]; then
-            echo \"Warning: No apps with build.sh found!\"
-          fi
-
-          # 3. Smart Process Management
-          for DIR in \$APP_DIRS; do
-            echo \"Checking component: \$DIR\"
-            PM2_NAME=\$(echo \"\$DIR\" | tr '/' '-')
-
-            # Check if PM2 is currently running this app
-            IS_RUNNING=0
-            if pm2 describe \"\$PM2_NAME\" > /dev/null 2>&1; then
-              IS_RUNNING=1
-            fi
-
-            # Check if Git code changed
-            HAS_CHANGES=0
-            if [ \"\$OLD_HEAD\" = \"FIRST_RUN\" ] || ! git diff --quiet \$OLD_HEAD \$NEW_HEAD -- \"\$DIR\"; then
-              HAS_CHANGES=1
-            fi
-
-            # Decision Tree
-            if [ \$IS_RUNNING -eq 0 ]; then
-              echo \"-> Process '\$PM2_NAME' is NOT running. Starting it...\"
-              echo \"Executing build...\"
-              (cd \"\$DIR\" && ./build.sh)
-              pm2 start ecosystem.config.js --only \"\$PM2_NAME\"
-
-            elif [ \$HAS_CHANGES -eq 1 ]; then
-              echo \"-> Changes detected for '\$DIR'. Rebuilding and reloading...\"
-              (cd \"\$DIR\" && ./build.sh)
-              echo \"Performing graceful reload...\"
-              pm2 reload \"\$PM2_NAME\" 2>/dev/null || pm2 restart \"\$PM2_NAME\"
-
-            else
-              echo \"-> No changes for '\$DIR' and it is already running. Skipping.\"
-            fi
-
-            echo '----------------------------------------'
-          done
-
-          pm2 save > /dev/null
-          echo 'Deployment completed successfully!'
-        "
+      run: bash "$ACTION_PATH/scripts/deploy.sh"
