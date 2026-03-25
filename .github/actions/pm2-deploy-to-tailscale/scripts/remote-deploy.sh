@@ -54,6 +54,30 @@ pm2_process_state() {
   ' "$name"
 }
 
+resolve_root_pm2_name() {
+  node -e '
+    const path = require("path");
+    const ecosystem = require(path.resolve("ecosystem.config.js"));
+    const apps = Array.isArray(ecosystem) ? ecosystem : ecosystem.apps;
+
+    if (!Array.isArray(apps) || apps.length === 0) {
+      throw new Error("ecosystem.config.js must export at least one PM2 app");
+    }
+
+    if (apps.length !== 1) {
+      console.error("Error: repo-root build.sh found, and ecosystem.config.js must define exactly one PM2 service.");
+      process.exit(1);
+    }
+
+    const app = apps[0];
+    if (!app || typeof app.name !== "string" || app.name.trim() === "") {
+      throw new Error("The single PM2 app in ecosystem.config.js must define a non-empty name");
+    }
+
+    process.stdout.write(app.name.trim());
+  '
+}
+
 sync_repository() {
   if [ ! -d "$REPO_DIR/.git" ]; then
     echo 'Cloning repository...'
@@ -86,10 +110,6 @@ discover_apps() {
     dir_name=$(dirname "$build_file")
     dir_name=${dir_name#./}
 
-    if [ "$dir_name" = "." ]; then
-      continue
-    fi
-
     if ! array_contains "$dir_name" "${APP_DIRS[@]}"; then
       APP_DIRS+=("$dir_name")
     fi
@@ -112,7 +132,12 @@ plan_deploy() {
 
   for dir in "${APP_DIRS[@]}"; do
     echo "Checking component: $dir"
-    pm2_name=${dir//\//-}
+    if [ "$dir" = "." ]; then
+      pm2_name=$(resolve_root_pm2_name)
+      echo "-> Root component detected. Target PM2 service: '$pm2_name'."
+    else
+      pm2_name=${dir//\//-}
+    fi
     process_state=$(pm2_process_state "$pm2_name")
     has_changes=0
 
