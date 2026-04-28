@@ -78,6 +78,45 @@ resolve_root_pm2_name() {
   '
 }
 
+resolve_pm2_names_for_dir() {
+  local target_dir=$1
+
+  node -e '
+    const path = require("path");
+    const ecosystem = require(path.resolve("ecosystem.config.js"));
+    const apps = Array.isArray(ecosystem) ? ecosystem : ecosystem.apps;
+    const target = process.argv[1];
+
+    if (!Array.isArray(apps) || apps.length === 0) {
+      throw new Error("ecosystem.config.js must export at least one PM2 app");
+    }
+
+    const normalize = (value) => {
+      if (typeof value !== "string") return "";
+      const normalized = path
+        .normalize(value)
+        .replace(/\\/g, "/")
+        .replace(/^\.\/+/, "")
+        .replace(/\/+$/, "");
+      return normalized === "" || normalized === "." ? "." : normalized;
+    };
+
+    const targetNormalized = normalize(target);
+    const names = [];
+    for (const app of apps) {
+      if (!app || typeof app.name !== "string" || app.name.trim() === "") {
+        continue;
+      }
+      const cwdNormalized = normalize(app.cwd ?? ".");
+      if (cwdNormalized === targetNormalized) {
+        names.push(app.name.trim());
+      }
+    }
+
+    process.stdout.write(names.join("\n"));
+  ' "$target_dir"
+}
+
 sync_repository() {
   if [ ! -d "$REPO_DIR/.git" ]; then
     echo 'Cloning repository...'
@@ -126,41 +165,51 @@ discover_apps() {
 
 plan_deploy() {
   local dir
+  local pm2_names_raw
   local pm2_name
   local process_state
   local has_changes
 
   for dir in "${APP_DIRS[@]}"; do
     echo "Checking component: $dir"
-    if [ "$dir" = "." ]; then
+    pm2_names_raw=$(resolve_pm2_names_for_dir "$dir")
+    if [ -z "$pm2_names_raw" ] && [ "$dir" = "." ]; then
       pm2_name=$(resolve_root_pm2_name)
-      echo "-> Root component detected. Target PM2 service: '$pm2_name'."
-    else
-      pm2_name=${dir//\//-}
+      pm2_names_raw=$pm2_name
     fi
-    process_state=$(pm2_process_state "$pm2_name")
+
+    if [ -z "$pm2_names_raw" ]; then
+      echo "Error: no PM2 services in ecosystem.config.js map to cwd '$dir'"
+      exit 1
+    fi
+
     has_changes=0
 
     if [ "$OLD_HEAD" = 'FIRST_RUN' ] || ! git diff --quiet "$OLD_HEAD" "$NEW_HEAD" -- "$dir"; then
       has_changes=1
     fi
 
-    SERVICE_DIRS+=("$dir")
-    SERVICE_NAMES+=("$pm2_name")
+    while IFS= read -r pm2_name; do
+      [ -z "$pm2_name" ] && continue
+      process_state=$(pm2_process_state "$pm2_name")
 
-    if [ "$process_state" = 'online' ] && [ "$has_changes" -eq 0 ]; then
-      SERVICE_ACTIONS+=('skip')
-      echo "-> No changes for '$dir' and '$pm2_name' is online. Skipping."
-    elif [ "$process_state" = 'missing' ]; then
-      SERVICE_ACTIONS+=('start')
-      echo "-> '$pm2_name' is not registered in PM2. Will build and start it."
-    elif [ "$process_state" = 'online' ]; then
-      SERVICE_ACTIONS+=('reload')
-      echo "-> Changes detected for '$dir'. Will build and reload '$pm2_name'."
-    else
-      SERVICE_ACTIONS+=('restart')
-      echo "-> '$pm2_name' is currently '$process_state'. Will build and restart it."
-    fi
+      SERVICE_DIRS+=("$dir")
+      SERVICE_NAMES+=("$pm2_name")
+
+      if [ "$process_state" = 'online' ] && [ "$has_changes" -eq 0 ]; then
+        SERVICE_ACTIONS+=('skip')
+        echo "-> '$pm2_name': no changes for '$dir' and service is online. Skipping."
+      elif [ "$process_state" = 'missing' ]; then
+        SERVICE_ACTIONS+=('start')
+        echo "-> '$pm2_name': service missing. Will build '$dir' and start."
+      elif [ "$process_state" = 'online' ]; then
+        SERVICE_ACTIONS+=('reload')
+        echo "-> '$pm2_name': changes detected for '$dir'. Will build and reload."
+      else
+        SERVICE_ACTIONS+=('restart')
+        echo "-> '$pm2_name': current state '$process_state'. Will build and restart."
+      fi
+    done <<< "$pm2_names_raw"
 
     echo '----------------------------------------'
   done
@@ -170,6 +219,7 @@ build_targets() {
   local index
   local dir
   local action
+  declare -a built_dirs=()
 
   for index in "${!SERVICE_DIRS[@]}"; do
     dir=${SERVICE_DIRS[$index]}
@@ -179,8 +229,13 @@ build_targets() {
       continue
     fi
 
+    if array_contains "$dir" "${built_dirs[@]}"; then
+      continue
+    fi
+
     echo "Building '$dir'..."
     (cd "$dir" && ./build.sh)
+    built_dirs+=("$dir")
   done
 }
 
