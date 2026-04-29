@@ -18,3 +18,16 @@ When `./build.sh` exists, the action resolves the PM2 service name with the foll
 ## Input
 
 No additional input is required for root-level deployments.
+
+## Build Contract
+
+- For each discovered component, the action executes `<component>/build.sh`.
+- The deploy context is exported to build scripts:
+  - `DEPLOY_SHA`
+  - `DEPLOY_REF`
+  - `DEPLOY_TIMESTAMP`
+- Component-specific release logic should stay in `build.sh`; the deploy action remains orchestrator-only (`sync`, `build`, `pm2 reload/start`).
+
+## Concurrency
+
+- Deployments are protected by a host-level lock (`flock`) per repository to prevent concurrent runs on the same server.

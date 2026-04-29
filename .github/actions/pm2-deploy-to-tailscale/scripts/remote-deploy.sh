@@ -10,6 +10,7 @@ export NVM_DIR="$HOME/.nvm"
 export PATH="$PATH:$HOME/.local/bin:$HOME/.bun/bin"
 
 REPO_DIR="$HOME/$REPO_NAME"
+DEPLOY_LOCK_FILE="/tmp/${REPO_NAME}-deploy.lock"
 OLD_HEAD='FIRST_RUN'
 NEW_HEAD=''
 
@@ -273,14 +274,26 @@ apply_deploy() {
   done
 }
 
-sync_repository
+{
+  flock -n 9 || {
+    echo "Error: another deployment is already running for '$REPO_NAME'."
+    exit 1
+  }
 
-echo '----------------------------------------'
+  export DEPLOY_SHA
+  export DEPLOY_REF
+  DEPLOY_TIMESTAMP=$(date +%s)
+  export DEPLOY_TIMESTAMP
 
-discover_apps
-plan_deploy
-build_targets
-apply_deploy
+  sync_repository
 
-pm2 save > /dev/null
-echo 'Deployment completed successfully!'
+  echo '----------------------------------------'
+
+  discover_apps
+  plan_deploy
+  build_targets
+  apply_deploy
+
+  pm2 save > /dev/null
+  echo 'Deployment completed successfully!'
+} 9>"$DEPLOY_LOCK_FILE"
