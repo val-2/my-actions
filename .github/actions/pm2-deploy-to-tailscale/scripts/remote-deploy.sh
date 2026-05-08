@@ -108,6 +108,9 @@ resolve_pm2_names_for_dir() {
       if (!app || typeof app.name !== "string" || app.name.trim() === "") {
         continue;
       }
+      if (app.deploy_managed === false) {
+        continue;
+      }
       const cwdNormalized = normalize(app.cwd ?? ".");
       if (cwdNormalized === targetNormalized) {
         names.push(app.name.trim());
@@ -116,6 +119,58 @@ resolve_pm2_names_for_dir() {
 
     process.stdout.write(names.join("\n"));
   ' "$target_dir"
+}
+
+resolve_pm2_deploy_action() {
+  local service_name=$1
+
+  node -e '
+    const path = require("path");
+    const ecosystem = require(path.resolve("ecosystem.config.js"));
+    const apps = Array.isArray(ecosystem) ? ecosystem : ecosystem.apps;
+    const targetName = process.argv[1];
+
+    if (!Array.isArray(apps) || apps.length === 0) {
+      throw new Error("ecosystem.config.js must export at least one PM2 app");
+    }
+
+    const app = apps.find((entry) => entry && entry.name === targetName);
+    if (!app) {
+      process.stdout.write("");
+      process.exit(0);
+    }
+
+    const action = app.deploy_action;
+    if (typeof action !== "string") {
+      process.stdout.write("");
+      process.exit(0);
+    }
+
+    process.stdout.write(action.trim().toLowerCase());
+  ' "$service_name"
+}
+
+run_optional_deploy_hook() {
+  local dir=$1
+  local hook_name=$2
+  local pm2_name=$3
+  local action=$4
+  local hook_path="$dir/$hook_name"
+
+  if [ ! -x "$hook_path" ]; then
+    return 0
+  fi
+
+  echo "Running hook '$hook_path' for '$pm2_name'..."
+  (
+    export PM2_SERVICE_NAME="$pm2_name"
+    export PM2_SERVICE_ACTION="$action"
+    export DEPLOY_SHA
+    export DEPLOY_REF
+    export DEPLOY_TIMESTAMP
+    cd "$dir"
+    "./$hook_name"
+  )
 }
 
 sync_repository() {
@@ -169,6 +224,7 @@ plan_deploy() {
   local pm2_names_raw
   local pm2_name
   local process_state
+  local deploy_action_override
   local has_changes
 
   for dir in "${APP_DIRS[@]}"; do
@@ -193,6 +249,7 @@ plan_deploy() {
     while IFS= read -r pm2_name; do
       [ -z "$pm2_name" ] && continue
       process_state=$(pm2_process_state "$pm2_name")
+      deploy_action_override=$(resolve_pm2_deploy_action "$pm2_name")
 
       SERVICE_DIRS+=("$dir")
       SERVICE_NAMES+=("$pm2_name")
@@ -203,6 +260,9 @@ plan_deploy() {
       elif [ "$process_state" = 'missing' ]; then
         SERVICE_ACTIONS+=('start')
         echo "-> '$pm2_name': service missing. Will build '$dir' and start."
+      elif [ "$process_state" = 'online' ] && [ "$deploy_action_override" = 'restart' ]; then
+        SERVICE_ACTIONS+=('restart')
+        echo "-> '$pm2_name': changes detected for '$dir'. deploy_action=restart. Will build and restart."
       elif [ "$process_state" = 'online' ]; then
         SERVICE_ACTIONS+=('reload')
         echo "-> '$pm2_name': changes detected for '$dir'. Will build and reload."
@@ -242,10 +302,12 @@ build_targets() {
 
 apply_deploy() {
   local index
+  local dir
   local pm2_name
   local action
 
   for index in "${!SERVICE_NAMES[@]}"; do
+    dir=${SERVICE_DIRS[$index]}
     pm2_name=${SERVICE_NAMES[$index]}
     action=${SERVICE_ACTIONS[$index]}
 
@@ -253,6 +315,11 @@ apply_deploy() {
       skip)
         continue
         ;;
+    esac
+
+    run_optional_deploy_hook "$dir" "deploy-before-restart.sh" "$pm2_name" "$action"
+
+    case "$action" in
       start)
         echo "Starting '$pm2_name'..."
         pm2 start ecosystem.config.js --only "$pm2_name" --update-env
@@ -271,6 +338,8 @@ apply_deploy() {
         exit 1
         ;;
     esac
+
+    run_optional_deploy_hook "$dir" "deploy-after-restart.sh" "$pm2_name" "$action"
   done
 }
 

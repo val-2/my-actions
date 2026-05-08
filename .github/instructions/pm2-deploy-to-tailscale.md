@@ -6,6 +6,7 @@ The deploy script discovers deployable components by scanning for `build.sh` fil
 
 - A `build.sh` in a subdirectory (example: `apps/api/build.sh`) maps to PM2 service name `apps-api`.
 - A `build.sh` in the repository root (`./build.sh`) is supported.
+- PM2 apps with `deploy_managed: false` in `ecosystem.config.js` are excluded from deploy discovery.
 
 ## Root Service Name Resolution
 
@@ -26,7 +27,24 @@ No additional input is required for root-level deployments.
   - `DEPLOY_SHA`
   - `DEPLOY_REF`
   - `DEPLOY_TIMESTAMP`
-- Component-specific release logic should stay in `build.sh`; the deploy action remains orchestrator-only (`sync`, `build`, `pm2 reload/start`).
+- `build.sh` must stay build-only (no runtime traffic switch side effects).
+- Optional deploy hooks can be added per component directory:
+  - `deploy-before-restart.sh`
+  - `deploy-after-restart.sh`
+- Hook runtime context:
+  - `PM2_SERVICE_NAME`
+  - `PM2_SERVICE_ACTION`
+  - `DEPLOY_SHA`
+  - `DEPLOY_REF`
+  - `DEPLOY_TIMESTAMP`
+- Hooks run only when the service action is not `skip` and the hook file exists and is executable.
+- Default orchestration remains action-level: `sync_repository -> discover_apps -> plan_deploy -> build_targets -> apply_deploy -> pm2 save`.
+
+## Deploy Action Override
+
+- Each PM2 app can set `deploy_action` in `ecosystem.config.js`.
+- Supported override currently enforced by planner:
+  - `deploy_action: "restart"` forces `restart` instead of `reload` when service is online and changes are detected.
 
 ## Concurrency
 
