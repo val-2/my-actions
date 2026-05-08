@@ -199,11 +199,18 @@ sync_repository() {
 discover_apps() {
   local build_file
   local dir_name
+  local hook
 
   while IFS= read -r -d '' build_file; do
     chmod +x "$build_file"
     dir_name=$(dirname "$build_file")
     dir_name=${dir_name#./}
+
+    for hook in "$dir_name/deploy-before-restart.sh" "$dir_name/deploy-after-restart.sh"; do
+      if [ -f "$hook" ]; then
+        chmod +x "$hook"
+      fi
+    done
 
     if ! array_contains "$dir_name" "${APP_DIRS[@]}"; then
       APP_DIRS+=("$dir_name")
