@@ -7,6 +7,7 @@ set -euo pipefail
 : "${DEPLOY_SHA:?Environment variable DEPLOY_SHA is required}"
 : "${DEPLOY_REF:?Environment variable DEPLOY_REF is required}"
 DEPLOY_EVENT_NAME="${DEPLOY_EVENT_NAME:-unknown}"
+DEPLOY_RUN_ATTEMPT="${DEPLOY_RUN_ATTEMPT:-1}"
 
 CONNECTION="$SSH_USER@$SERVER_IP"
 REPO_NAME="${REPOSITORY_SLUG#*/}"
@@ -26,4 +27,4 @@ if ! ssh "${SSH_OPTIONS[@]}" "$CONNECTION" 'echo "SSH connection successful"'; t
   exit 1
 fi
 
-ssh "${SSH_OPTIONS[@]}" "$CONNECTION" bash -s -- "$REPOSITORY_SLUG" "$REPO_NAME" "$DEPLOY_SHA" "$DEPLOY_REF" "$DEPLOY_EVENT_NAME" < "$REMOTE_SCRIPT"
+ssh "${SSH_OPTIONS[@]}" "$CONNECTION" bash -s -- "$REPOSITORY_SLUG" "$REPO_NAME" "$DEPLOY_SHA" "$DEPLOY_REF" "$DEPLOY_EVENT_NAME" "$DEPLOY_RUN_ATTEMPT" < "$REMOTE_SCRIPT"

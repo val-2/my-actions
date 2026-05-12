@@ -5,9 +5,10 @@ REPO_NAME=$2
 DEPLOY_SHA=$3
 DEPLOY_REF=$4
 DEPLOY_EVENT_NAME=${5:-unknown}
+DEPLOY_RUN_ATTEMPT=${6:-1}
 FORCE_RESTART_MANAGED=0
 
-if [ "$DEPLOY_EVENT_NAME" = 'workflow_dispatch' ]; then
+if [ "$DEPLOY_EVENT_NAME" = 'workflow_dispatch' ] || [ "$DEPLOY_RUN_ATTEMPT" != '1' ]; then
   FORCE_RESTART_MANAGED=1
 fi
 
@@ -371,13 +372,14 @@ apply_deploy() {
   export DEPLOY_SHA
   export DEPLOY_REF
   export DEPLOY_EVENT_NAME
+  export DEPLOY_RUN_ATTEMPT
   DEPLOY_TIMESTAMP=$(date +%s)
   export DEPLOY_TIMESTAMP
 
   sync_repository
 
   if [ "$FORCE_RESTART_MANAGED" -eq 1 ]; then
-    echo 'Manual workflow_dispatch run detected: all deploy-managed PM2 services will be rebuilt and restarted.'
+    echo "Manual deploy run detected (event=$DEPLOY_EVENT_NAME, attempt=$DEPLOY_RUN_ATTEMPT): all deploy-managed PM2 services will be rebuilt and restarted."
     echo '----------------------------------------'
   fi
 
