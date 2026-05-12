@@ -4,6 +4,12 @@ REPOSITORY_SLUG=$1
 REPO_NAME=$2
 DEPLOY_SHA=$3
 DEPLOY_REF=$4
+DEPLOY_EVENT_NAME=${5:-unknown}
+FORCE_RESTART_MANAGED=0
+
+if [ "$DEPLOY_EVENT_NAME" = 'workflow_dispatch' ]; then
+  FORCE_RESTART_MANAGED=1
+fi
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
@@ -261,7 +267,13 @@ plan_deploy() {
       SERVICE_DIRS+=("$dir")
       SERVICE_NAMES+=("$pm2_name")
 
-      if [ "$process_state" = 'online' ] && [ "$has_changes" -eq 0 ]; then
+      if [ "$FORCE_RESTART_MANAGED" -eq 1 ] && [ "$process_state" = 'missing' ]; then
+        SERVICE_ACTIONS+=('start')
+        echo "-> '$pm2_name': manual workflow run and service missing. Will build '$dir' and start."
+      elif [ "$FORCE_RESTART_MANAGED" -eq 1 ]; then
+        SERVICE_ACTIONS+=('restart')
+        echo "-> '$pm2_name': manual workflow run. Will build '$dir' and restart."
+      elif [ "$process_state" = 'online' ] && [ "$has_changes" -eq 0 ]; then
         SERVICE_ACTIONS+=('skip')
         echo "-> '$pm2_name': no changes for '$dir' and service is online. Skipping."
       elif [ "$process_state" = 'missing' ]; then
@@ -358,10 +370,16 @@ apply_deploy() {
 
   export DEPLOY_SHA
   export DEPLOY_REF
+  export DEPLOY_EVENT_NAME
   DEPLOY_TIMESTAMP=$(date +%s)
   export DEPLOY_TIMESTAMP
 
   sync_repository
+
+  if [ "$FORCE_RESTART_MANAGED" -eq 1 ]; then
+    echo 'Manual workflow_dispatch run detected: all deploy-managed PM2 services will be rebuilt and restarted.'
+    echo '----------------------------------------'
+  fi
 
   echo '----------------------------------------'
 

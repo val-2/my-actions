@@ -26,6 +26,7 @@ No additional input is required for root-level deployments.
 - The deploy context is exported to build scripts:
   - `DEPLOY_SHA`
   - `DEPLOY_REF`
+  - `DEPLOY_EVENT_NAME`
   - `DEPLOY_TIMESTAMP`
 - `build.sh` must stay build-only (no runtime traffic switch side effects).
 - Optional deploy hooks can be added per component directory:
@@ -36,6 +37,7 @@ No additional input is required for root-level deployments.
   - `PM2_SERVICE_ACTION`
   - `DEPLOY_SHA`
   - `DEPLOY_REF`
+  - `DEPLOY_EVENT_NAME`
   - `DEPLOY_TIMESTAMP`
 - Hooks run only when the service action is not `skip` and the hook file exists and is executable.
 - Default orchestration remains action-level: `sync_repository -> discover_apps -> plan_deploy -> build_targets -> apply_deploy -> pm2 save`.
@@ -45,6 +47,13 @@ No additional input is required for root-level deployments.
 - Each PM2 app can set `deploy_action` in `ecosystem.config.js`.
 - Supported override currently enforced by planner:
   - `deploy_action: "restart"` forces `restart` instead of `reload` when service is online and changes are detected.
+
+## Manual Workflow Runs
+
+- When the GitHub workflow is triggered with `workflow_dispatch` (`Run workflow` in GitHub), the action treats the deploy as an explicit operator restart.
+- Every discovered PM2 app that is not marked `deploy_managed: false` is built and restarted, even if no files changed between the previous deployed commit and the target SHA.
+- Missing managed services are started instead of restarted.
+- Commit-triggered deploys keep the normal change-based skip/reload/restart planner.
 
 ## Concurrency
 

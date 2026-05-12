@@ -34,5 +34,6 @@ runs:
         REPOSITORY_SLUG: ${{ github.repository }}
         DEPLOY_SHA: ${{ github.sha }}
         DEPLOY_REF: ${{ github.ref }}
+        DEPLOY_EVENT_NAME: ${{ github.event_name }}
       shell: bash
       run: bash "$ACTION_PATH/scripts/deploy.sh"
