@@ -376,6 +376,10 @@ apply_deploy() {
   DEPLOY_TIMESTAMP=$(date +%s)
   export DEPLOY_TIMESTAMP
 
+  # Start the PM2 daemon before `pm2 jlist` is piped into the JSON parser.
+  # On first use PM2 otherwise prefixes the JSON with its daemon startup banner.
+  pm2 ping >/dev/null
+
   sync_repository
 
   if [ "$FORCE_RESTART_MANAGED" -eq 1 ]; then
