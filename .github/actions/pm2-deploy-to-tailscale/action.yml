@@ -9,7 +9,6 @@ inputs:
     required: true
 
   # Default WIF identity for repositories owned by val-2.
-  # Client ID and audience are identifiers, not long-lived secrets.
   # Organizations can override both inputs with their own Tailscale WIF values.
   ts_wif_client_id:
     description: "Tailscale Workload Identity Federation client ID"
@@ -20,40 +19,15 @@ inputs:
     required: false
     default: "api.tailscale.com/TUP4GPS2bP91CNTRL-kuzygWcXhY11CNTRL"
 
-  # Temporary backwards-compatible OAuth inputs.
-  # Existing callers that still provide ts_oauth_secret keep using OAuth until
-  # they are migrated to WIF. Remove these once all callers use id-token: write.
-  ts_oauth_client_id:
-    description: "Deprecated: Tailscale OAuth Client ID"
-    required: false
-    default: ""
-  ts_oauth_secret:
-    description: "Deprecated: Tailscale OAuth Secret"
-    required: false
-    default: ""
-  tags:
-    description: "Deprecated: tags used by legacy OAuth authentication"
-    required: false
-    default: "tag:github"
-
 runs:
   using: "composite"
   steps:
-    - name: Tailscale (Workload Identity Federation)
-      if: ${{ inputs.ts_oauth_secret == '' }}
+    - name: Tailscale
       uses: tailscale/github-action@v4
       with:
         oauth-client-id: ${{ inputs.ts_wif_client_id }}
         audience: ${{ inputs.ts_wif_audience }}
         tags: tag:deploy
-
-    - name: Tailscale (legacy OAuth)
-      if: ${{ inputs.ts_oauth_secret != '' }}
-      uses: tailscale/github-action@v4
-      with:
-        oauth-client-id: ${{ inputs.ts_oauth_client_id }}
-        oauth-secret: ${{ inputs.ts_oauth_secret }}
-        tags: ${{ inputs.tags }}
 
     - name: Deploy to Server
       env:
