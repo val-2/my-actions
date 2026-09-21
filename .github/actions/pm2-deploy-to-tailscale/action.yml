@@ -7,24 +7,27 @@ inputs:
   ssh_user:
     description: "SSH user name"
     required: true
-  ts_oauth_client_id:
-    description: "Tailscale OAuth Client ID"
-    required: true
-  ts_oauth_secret:
-    description: "Tailscale OAuth Secret"
-    required: true
-  tags:
-    description: "Tags for Tailscale"
-    required: true
+
+  # Default WIF identity for repositories owned by val-2.
+  # Organizations can override both inputs with their own Tailscale WIF values.
+  ts_wif_client_id:
+    description: "Tailscale Workload Identity Federation client ID"
+    required: false
+    default: "TUP4GPS2bP91CNTRL-kuzygWcXhY11CNTRL"
+  ts_wif_audience:
+    description: "Tailscale Workload Identity Federation audience"
+    required: false
+    default: "api.tailscale.com/TUP4GPS2bP91CNTRL-kuzygWcXhY11CNTRL"
+
 runs:
   using: "composite"
   steps:
     - name: Tailscale
       uses: tailscale/github-action@v4
       with:
-        oauth-client-id: ${{ inputs.ts_oauth_client_id }}
-        oauth-secret: ${{ inputs.ts_oauth_secret }}
-        tags: ${{ inputs.tags }}
+        oauth-client-id: ${{ inputs.ts_wif_client_id }}
+        audience: ${{ inputs.ts_wif_audience }}
+        tags: tag:deploy
 
     - name: Deploy to Server
       env:
