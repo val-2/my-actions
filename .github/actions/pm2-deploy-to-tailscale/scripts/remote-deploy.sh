@@ -15,6 +15,15 @@ fi
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 export PATH="$PATH:$HOME/.local/bin:$HOME/.bun/bin"
+PM2_EXECUTABLE=$(command -v pm2 || true)
+
+run_pm2() {
+  if [ -n "$PM2_EXECUTABLE" ]; then
+    "$PM2_EXECUTABLE" "$@"
+  else
+    pm2 "$@"
+  fi
+}
 
 REPO_DIR="$HOME/$REPO_NAME"
 DEPLOY_LOCK_FILE="/tmp/${REPO_NAME}-deploy.lock"
@@ -43,7 +52,7 @@ array_contains() {
 pm2_process_state() {
   local name=$1
 
-  pm2 jlist | node -e '
+  run_pm2 jlist | node -e '
     const fs = require("fs");
     const name = process.argv[1];
     const raw = fs.readFileSync(0, "utf8");
@@ -345,16 +354,16 @@ apply_deploy() {
     case "$action" in
       start)
         echo "Starting '$pm2_name'..."
-        pm2 start ecosystem.config.js --only "$pm2_name" --update-env
+        run_pm2 start ecosystem.config.js --only "$pm2_name" --update-env
         ;;
       reload)
         echo "Reloading '$pm2_name' with updated environment..."
-        pm2 reload ecosystem.config.js --only "$pm2_name" --update-env 2>/dev/null || \
-          pm2 restart ecosystem.config.js --only "$pm2_name" --update-env
+        run_pm2 reload ecosystem.config.js --only "$pm2_name" --update-env 2>/dev/null || \
+          run_pm2 restart ecosystem.config.js --only "$pm2_name" --update-env
         ;;
       restart)
         echo "Restarting '$pm2_name' with updated environment..."
-        pm2 restart ecosystem.config.js --only "$pm2_name" --update-env
+        run_pm2 restart ecosystem.config.js --only "$pm2_name" --update-env
         ;;
       *)
         echo "Error: Unknown deploy action '$action' for '$pm2_name'"
@@ -381,9 +390,20 @@ apply_deploy() {
 
   # Start the PM2 daemon before `pm2 jlist` is piped into the JSON parser.
   # On first use PM2 otherwise prefixes the JSON with its daemon startup banner.
-  pm2 ping >/dev/null
+  run_pm2 ping >/dev/null
 
   sync_repository
+
+  if [ -s "$REPO_DIR/.nvmrc" ]; then
+    if ! command -v nvm >/dev/null 2>&1; then
+      echo "Error: repository has .nvmrc, but NVM is unavailable on the server."
+      exit 1
+    fi
+
+    cd "$REPO_DIR"
+    nvm use
+    echo "Using Node $(node --version) from .nvmrc."
+  fi
 
   if [ "$FORCE_RESTART_MANAGED" -eq 1 ]; then
     echo "Manual deploy run detected (event=$DEPLOY_EVENT_NAME, attempt=$DEPLOY_RUN_ATTEMPT): all deploy-managed PM2 services will be rebuilt and restarted."
@@ -397,6 +417,6 @@ apply_deploy() {
   build_targets
   apply_deploy
 
-  pm2 save > /dev/null
+  run_pm2 save > /dev/null
   echo 'Deployment completed successfully!'
 } 9>"$DEPLOY_LOCK_FILE"
