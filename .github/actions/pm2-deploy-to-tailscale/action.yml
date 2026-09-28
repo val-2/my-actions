@@ -7,6 +7,10 @@ inputs:
   ssh_user:
     description: "SSH user name"
     required: true
+  tags:
+    description: "Tailscale ACL tags"
+    required: false
+    default: "tag:deploy"
 
   # Default WIF identity for repositories owned by val-2.
   # Organizations can override both inputs with their own Tailscale WIF values.
@@ -27,7 +31,7 @@ runs:
       with:
         oauth-client-id: ${{ inputs.ts_wif_client_id }}
         audience: ${{ inputs.ts_wif_audience }}
-        tags: tag:deploy
+        tags: ${{ inputs.tags }}
 
     - name: Deploy to Server
       env:

@@ -12,7 +12,8 @@ if [ "$DEPLOY_EVENT_NAME" = 'workflow_dispatch' ] || [ "$DEPLOY_RUN_ATTEMPT" != 
   FORCE_RESTART_MANAGED=1
 fi
 
-export PATH="$HOME/.local/bin:$PATH"
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+export PATH="$PNPM_HOME/bin:$PNPM_HOME:$PATH"
 PM2_EXECUTABLE=$(command -v pm2 || true)
 
 run_pm2() {
