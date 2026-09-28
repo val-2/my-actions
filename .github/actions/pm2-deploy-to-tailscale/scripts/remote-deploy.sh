@@ -62,7 +62,7 @@ pm2_process_state() {
   ' "$name"
 }
 
-resolve_root_pm2_name() {
+resolve_root_pm2_names() {
   node -e '
     const path = require("path");
     const ecosystem = require(path.resolve("ecosystem.config.js"));
@@ -72,17 +72,20 @@ resolve_root_pm2_name() {
       throw new Error("ecosystem.config.js must export at least one PM2 app");
     }
 
-    if (apps.length !== 1) {
-      console.error("Error: repo-root build.sh found, and ecosystem.config.js must define exactly one PM2 service.");
-      process.exit(1);
+    const managedApps = apps.filter((app) => !app || app.deploy_managed !== false);
+    if (managedApps.length === 0) {
+      throw new Error("repo-root build.sh found, but ecosystem.config.js defines no deploy-managed PM2 apps");
     }
 
-    const app = apps[0];
-    if (!app || typeof app.name !== "string" || app.name.trim() === "") {
-      throw new Error("The single PM2 app in ecosystem.config.js must define a non-empty name");
-    }
+    const names = managedApps.map((app) => {
+      if (!app || typeof app.name !== "string" || app.name.trim() === "") {
+        throw new Error("Every deploy-managed PM2 app in ecosystem.config.js must define a non-empty name");
+      }
 
-    process.stdout.write(app.name.trim());
+      return app.name.trim();
+    });
+
+    process.stdout.write(names.join("\n"));
   '
 }
 
@@ -243,10 +246,10 @@ plan_deploy() {
 
   for dir in "${APP_DIRS[@]}"; do
     echo "Checking component: $dir"
-    pm2_names_raw=$(resolve_pm2_names_for_dir "$dir")
-    if [ -z "$pm2_names_raw" ] && [ "$dir" = "." ]; then
-      pm2_name=$(resolve_root_pm2_name)
-      pm2_names_raw=$pm2_name
+    if [ "$dir" = "." ]; then
+      pm2_names_raw=$(resolve_root_pm2_names)
+    else
+      pm2_names_raw=$(resolve_pm2_names_for_dir "$dir")
     fi
 
     if [ -z "$pm2_names_raw" ]; then

@@ -8,13 +8,15 @@ The deploy script discovers deployable components by scanning for `build.sh` fil
 - A `build.sh` in the repository root (`./build.sh`) is supported.
 - PM2 apps with `deploy_managed: false` in `ecosystem.config.js` are excluded from deploy discovery.
 
-## Root Service Name Resolution
+## Root Service Resolution
 
-When `./build.sh` exists, the action resolves the PM2 service name with the following logic:
+When `./build.sh` exists, the action resolves the PM2 service names with the following logic:
 
-1. `ecosystem.config.js` must contain exactly one PM2 app.
-2. The single app `name` is used as the root service name.
-3. If zero or multiple apps exist, deployment fails with an explicit error.
+1. Every PM2 app not marked `deploy_managed: false` is managed by the root build.
+2. Each managed app must define a non-empty `name`.
+3. If no managed apps exist, or any managed app has an invalid name, deployment fails with an explicit error.
+
+The root `build.sh` runs once, then the planned PM2 action is applied to each managed app.
 
 ## Input
 
