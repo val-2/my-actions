@@ -12,9 +12,7 @@ if [ "$DEPLOY_EVENT_NAME" = 'workflow_dispatch' ] || [ "$DEPLOY_RUN_ATTEMPT" != 
   FORCE_RESTART_MANAGED=1
 fi
 
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-export PATH="$PATH:$HOME/.local/bin:$HOME/.bun/bin"
+export PATH="$HOME/.local/bin:$PATH"
 PM2_EXECUTABLE=$(command -v pm2 || true)
 
 run_pm2() {
