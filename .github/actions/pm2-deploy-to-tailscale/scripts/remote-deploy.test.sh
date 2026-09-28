@@ -12,7 +12,6 @@ TEST_LOG="$TMP_DIR/deploy.log"
 TEST_SHA=0123456789abcdef0123456789abcdef01234567
 
 mkdir -p "$FIXTURE_REPO/.git" "$FIXTURE_REPO/apps/web" "$FIXTURE_REPO/apps/worker" "$FAKE_BIN"
-printf '24.14.1\n' > "$FIXTURE_REPO/.nvmrc"
 
 cat > "$FIXTURE_REPO/ecosystem.config.js" <<'EOF'
 module.exports = {
@@ -50,14 +49,7 @@ cat > "$FAKE_BIN/flock" <<'EOF'
 exit 0
 EOF
 
-cat > "$FAKE_BIN/nvm" <<'EOF'
-#!/usr/bin/env bash
-if [ "$1" = 'use' ]; then
-  printf 'nvm use\n' >> "$TEST_LOG"
-fi
-EOF
-
-chmod +x "$FIXTURE_REPO/build.sh" "$FAKE_BIN/git" "$FAKE_BIN/pm2" "$FAKE_BIN/flock" "$FAKE_BIN/nvm"
+chmod +x "$FIXTURE_REPO/build.sh" "$FAKE_BIN/git" "$FAKE_BIN/pm2" "$FAKE_BIN/flock"
 
 HOME="$FIXTURE_HOME" \
 PATH="$FAKE_BIN:$PATH" \
@@ -66,8 +58,6 @@ TEST_SHA="$TEST_SHA" \
 bash "$SCRIPT_DIR/remote-deploy.sh" owner/repo repo "$TEST_SHA" refs/heads/main push 1 >/dev/null
 
 test "$(grep -c '^build$' "$TEST_LOG")" -eq 1
-test "$(grep -c '^nvm use$' "$TEST_LOG")" -eq 1
-test "$(grep -n '^nvm use$' "$TEST_LOG" | cut -d: -f1)" -lt "$(grep -n '^build$' "$TEST_LOG" | cut -d: -f1)"
 test "$(grep -c -- '--only web ' "$TEST_LOG")" -eq 1
 test "$(grep -c -- '--only worker ' "$TEST_LOG")" -eq 1
 ! grep -q -- '--only manual ' "$TEST_LOG"

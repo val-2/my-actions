@@ -393,17 +393,6 @@ apply_deploy() {
 
   sync_repository
 
-  if [ -s "$REPO_DIR/.nvmrc" ]; then
-    if ! command -v nvm >/dev/null 2>&1; then
-      echo "Error: repository has .nvmrc, but NVM is unavailable on the server."
-      exit 1
-    fi
-
-    cd "$REPO_DIR"
-    nvm use
-    echo "Using Node $(node --version) from .nvmrc."
-  fi
-
   if [ "$FORCE_RESTART_MANAGED" -eq 1 ]; then
     echo "Manual deploy run detected (event=$DEPLOY_EVENT_NAME, attempt=$DEPLOY_RUN_ATTEMPT): all deploy-managed PM2 services will be rebuilt and restarted."
     echo '----------------------------------------'
